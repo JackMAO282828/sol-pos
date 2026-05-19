@@ -1,0 +1,105 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum WithdrawalStatus {
+  pending
+  approved
+  rejected
+  paid
+}
+
+model User {
+  id          String       @id @default(cuid())
+  wallet      String       @unique
+  referrerId  String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  nonces      LoginNonce[]
+  stakes      Stake[]
+  withdrawals Withdrawal[]
+  referrer    User?        @relation("UserReferrals", fields: [referrerId], references: [id])
+  referrals   User[]       @relation("UserReferrals")
+
+  @@index([referrerId])
+}
+
+model LoginNonce {
+  id        String    @id @default(cuid())
+  wallet    String
+  nonce     String    @unique
+  message   String
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+  user      User?     @relation(fields: [wallet], references: [wallet])
+
+  @@index([wallet])
+}
+
+model Stake {
+  id          String    @id @default(cuid())
+  userId      String
+  wallet      String
+  signature   String    @unique
+  lamports    BigInt
+  receiver    String
+  slot        BigInt?
+  confirmedAt DateTime?
+  createdAt   DateTime  @default(now())
+  user        User      @relation(fields: [userId], references: [id])
+
+  @@index([wallet])
+  @@index([createdAt])
+}
+
+model Withdrawal {
+  id              String           @id @default(cuid())
+  userId          String
+  wallet          String
+  destination     String
+  lamports        BigInt
+  status          WithdrawalStatus @default(pending)
+  note            String?
+  reviewedBy      String?
+  reviewedAt      DateTime?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  user            User             @relation(fields: [userId], references: [id])
+  adminOperations AdminOperation[]
+
+  @@index([wallet])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model AdminOperation {
+  id           String            @id @default(cuid())
+  adminWallet  String
+  action       String
+  fromStatus   WithdrawalStatus?
+  toStatus     WithdrawalStatus?
+  note         String?
+  withdrawalId String?
+  createdAt    DateTime          @default(now())
+  withdrawal   Withdrawal?       @relation(fields: [withdrawalId], references: [id])
+
+  @@index([adminWallet])
+  @@index([createdAt])
+}
+
+model YieldSetting {
+  id          String   @id @default(cuid())
+  date        DateTime @unique @db.Date
+  dailyRate   Decimal  @db.Decimal(10, 6)
+  adminWallet String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([date])
+}
