@@ -150,18 +150,25 @@ a {
 }
 
 .utility-actions a,
-.icon-button {
+.icon-button,
+.soft-action {
   border: 1px solid var(--line);
   border-radius: 8px;
   min-height: 40px;
   padding: 0 12px;
   background: rgba(255, 255, 255, 0.045);
   color: #f7f3e8;
+  box-shadow: none;
 }
 
 .utility-actions a {
   display: inline-flex;
   align-items: center;
+}
+
+.soft-action {
+  color: #f7f3e8;
+  font-weight: 800;
 }
 
 .utility-actions .disabled {
@@ -274,6 +281,10 @@ a {
 
 .admin {
   margin-top: 28px;
+}
+
+.admin-lock {
+  max-width: 520px;
 }
 
 .admin-grid {
@@ -528,6 +539,7 @@ a {
 
   .utility-actions a,
   .icon-button,
+  .soft-action,
   .wallet-button {
     min-height: 46px;
     padding: 0 10px;

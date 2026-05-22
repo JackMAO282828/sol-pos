@@ -1,24 +1,30 @@
 import { Languages, Send, ShieldCheck, Wallet, WalletCards } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Connection, PublicKey } from '@solana/web3.js';
+import { Connection, PublicKey, Transaction } from '@solana/web3.js';
 import { api, AdminUser, MeResponse, setToken, Stake, Withdrawal, YieldSetting } from './api';
 import { env } from './env';
 import { buildStakeTransaction } from './solana';
 import { copy, Language } from './i18n';
 
 type Notice = { kind: 'ok' | 'error'; text: string } | null;
-type PhantomProvider = {
+type SolanaProvider = {
   isPhantom?: boolean;
-  publicKey?: PublicKey;
-  connect: () => Promise<{ publicKey: PublicKey }>;
-  signMessage: (message: Uint8Array, encoding?: string) => Promise<{ signature: Uint8Array }>;
-  signAndSendTransaction: (transaction: unknown) => Promise<{ signature: string }>;
+  isTokenPocket?: boolean;
+  publicKey?: PublicKey | string | { toBase58: () => string };
+  connect: (options?: { onlyIfTrusted?: boolean }) => Promise<{ publicKey?: PublicKey | string | { toBase58: () => string } } | void>;
+  signMessage?: (message: Uint8Array, encoding?: string) => Promise<{ signature?: Uint8Array } | Uint8Array>;
+  signAndSendTransaction?: (transaction: Transaction) => Promise<{ signature?: string } | string>;
+  signTransaction?: (transaction: Transaction) => Promise<Transaction>;
+  sendTransaction?: (transaction: Transaction, connection: Connection, options?: { skipPreflight?: boolean; preflightCommitment?: 'confirmed' }) => Promise<string>;
 };
 
 declare global {
   interface Window {
-    solana?: PhantomProvider;
+    solana?: SolanaProvider;
+    phantom?: { solana?: SolanaProvider };
+    tokenpocket?: { solana?: SolanaProvider };
+    solflare?: SolanaProvider;
   }
 }
 
@@ -26,13 +32,14 @@ export function App() {
   const [language, setLanguage] = useState<Language>('en');
   const [me, setMe] = useState<MeResponse | null>(null);
   const [notice, setNotice] = useState<Notice>(null);
-  const [stakeAmount, setStakeAmount] = useState('10');
+  const [stakeAmount, setStakeAmount] = useState('1');
   const [withdrawAmount, setWithdrawAmount] = useState('1');
   const [adminUsers, setAdminUsers] = useState<AdminUser[]>([]);
   const [adminStakes, setAdminStakes] = useState<Stake[]>([]);
   const [adminWithdrawals, setAdminWithdrawals] = useState<Withdrawal[]>([]);
   const [adminYields, setAdminYields] = useState<YieldSetting[]>([]);
   const [dailyRatePercent, setDailyRatePercent] = useState('');
+  const [adminMode, setAdminMode] = useState(() => window.location.hash === '#admin' || new URLSearchParams(window.location.search).get('admin') === '1');
   const [referrerWallet] = useState(() => new URLSearchParams(window.location.search).get('ref') || localStorage.getItem('solpos_referrer') || '');
   const [busy, setBusy] = useState(false);
   const [publicKey, setPublicKey] = useState<PublicKey | null>(null);
@@ -45,6 +52,20 @@ export function App() {
     document.title = language === 'zh' ? 'SOL POS | 算力生产 SOL' : 'SOL POS | Hashrate Produces SOL';
     if (referrerWallet) localStorage.setItem('solpos_referrer', referrerWallet);
   }, [language]);
+
+  useEffect(() => {
+    const onHashChange = () => setAdminMode(window.location.hash === '#admin' || new URLSearchParams(window.location.search).get('admin') === '1');
+    window.addEventListener('hashchange', onHashChange);
+    return () => window.removeEventListener('hashchange', onHashChange);
+  }, []);
+
+  useEffect(() => {
+    const provider = getSolanaProvider();
+    void provider?.connect({ onlyIfTrusted: true }).then((result) => {
+      const key = toPublicKey(result?.publicKey ?? provider.publicKey);
+      if (key) setPublicKey(key);
+    }).catch(() => undefined);
+  }, []);
 
   const refreshMe = useCallback(async () => {
     try {
@@ -60,7 +81,7 @@ export function App() {
   }, [refreshMe]);
 
   const loadAdmin = useCallback(async () => {
-    if (!me?.user.isAdmin) return;
+    if (!me?.user.isAdmin || !adminMode) return;
     const [users, stakes, withdrawals, yields] = await Promise.all([
       api.adminUsers(),
       api.adminStakes(),
@@ -72,7 +93,7 @@ export function App() {
     setAdminWithdrawals(withdrawals.withdrawals);
     setAdminYields(yields.yields);
     setDailyRatePercent(yields.yields[0]?.dailyRatePercent ?? '');
-  }, [me?.user.isAdmin]);
+  }, [adminMode, me?.user.isAdmin]);
 
   useEffect(() => {
     void loadAdmin().catch((error) => setNotice({ kind: 'error', text: error.message }));
@@ -97,22 +118,22 @@ export function App() {
       await refreshMe();
       return;
     }
-    if (!window.solana?.isPhantom) {
-      setNotice({ kind: 'error', text: 'Phantom wallet is not installed.' });
-      return;
-    }
-    const activeKey = publicKey ?? (await window.solana.connect()).publicKey;
-    setPublicKey(activeKey);
-    if (!activeKey) {
-      setNotice({ kind: 'error', text: 'Connect a wallet that supports message signing.' });
+    const provider = getSolanaProvider();
+    if (!provider) {
+      setNotice({ kind: 'error', text: language === 'zh' ? '请在 TP/Phantom 钱包浏览器中打开' : 'Open this page in a Solana wallet browser.' });
       return;
     }
     setBusy(true);
     try {
+      const activeKey = publicKey ?? await connectWallet(provider);
+      setPublicKey(activeKey);
       const walletAddress = activeKey.toBase58();
       const nonce = await api.nonce(walletAddress);
-      const signed = await window.solana.signMessage(new TextEncoder().encode(nonce.message), 'utf8');
-      const signature = bs58Encode(signed.signature);
+      if (!provider.signMessage) throw new Error(language === 'zh' ? '当前钱包不支持签名登录' : 'This wallet does not support message signing.');
+      const signed = await provider.signMessage(new TextEncoder().encode(nonce.message), 'utf8');
+      const signatureBytes = signed instanceof Uint8Array ? signed : signed.signature;
+      if (!signatureBytes) throw new Error(language === 'zh' ? '钱包未返回签名' : 'Wallet did not return a signature.');
+      const signature = bs58Encode(signatureBytes);
       const session = await api.login({ wallet: walletAddress, nonce: nonce.nonce, signature, referrerWallet: referrerWallet || undefined });
       setToken(session.token);
       await refreshMe();
@@ -125,29 +146,35 @@ export function App() {
   }
 
   async function stake() {
-    if (!window.solana?.isPhantom || !publicKey) {
-      setNotice({ kind: 'error', text: 'Connect a wallet first.' });
+    const provider = getSolanaProvider();
+    if (!provider) {
+      setNotice({ kind: 'error', text: language === 'zh' ? '请在 TP/Phantom 钱包浏览器中打开' : 'Open this page in a Solana wallet browser.' });
       return;
     }
     if (!env.stakeReceiverAddress) {
       setNotice({ kind: 'error', text: language === 'zh' ? '收款地址未配置' : 'Payment address is not configured.' });
       return;
     }
-    if (Number(stakeAmount) < 10) {
-      setNotice({ kind: 'error', text: language === 'zh' ? '10 SOL 起购买算力' : 'Minimum purchase is 10 SOL.' });
+    if (Number(stakeAmount) < 1) {
+      setNotice({ kind: 'error', text: language === 'zh' ? '1 SOL 起购买算力' : 'Minimum purchase is 1 SOL.' });
       return;
     }
     setBusy(true);
     try {
+      const activeKey = publicKey ?? await connectWallet(provider);
+      setPublicKey(activeKey);
+      if (me?.user.wallet && activeKey.toBase58() !== me.user.wallet) {
+        throw new Error(language === 'zh' ? '当前钱包和登录钱包不一致' : 'Connected wallet does not match signed-in wallet.');
+      }
       const tx = buildStakeTransaction({
-        from: publicKey,
+        from: activeKey,
         to: env.stakeReceiverAddress,
         amountSol: stakeAmount
       });
-      tx.feePayer = publicKey;
+      tx.feePayer = activeKey;
       const latest = await connection.getLatestBlockhash();
       tx.recentBlockhash = latest.blockhash;
-      const { signature } = await window.solana.signAndSendTransaction(tx);
+      const signature = await sendWalletTransaction(provider, tx, connection);
       await connection.confirmTransaction({ signature, ...latest }, 'confirmed');
       await api.verifyStake({ signature, amountSol: stakeAmount });
       await refreshMe();
@@ -191,10 +218,50 @@ export function App() {
     }
   }
 
+  async function payWithdrawal(withdrawal: Withdrawal) {
+    const provider = getSolanaProvider();
+    if (!provider) return void setNotice({ kind: 'error', text: language === 'zh' ? '请在管理员钱包浏览器中打开' : 'Open with the admin wallet.' });
+    setBusy(true);
+    try {
+      const adminKey = publicKey ?? await connectWallet(provider);
+      setPublicKey(adminKey);
+      if (!adminKey || adminKey.toBase58() !== me?.user.wallet) throw new Error(language === 'zh' ? '请连接当前管理员钱包' : 'Connect the current admin wallet.');
+      const tx = buildStakeTransaction({ from: adminKey, to: withdrawal.destination, amountSol: withdrawal.sol });
+      tx.feePayer = adminKey;
+      const latest = await connection.getLatestBlockhash();
+      tx.recentBlockhash = latest.blockhash;
+      const signature = await sendWalletTransaction(provider, tx, connection);
+      await connection.confirmTransaction({ signature, ...latest }, 'confirmed');
+      await api.updateWithdrawal(withdrawal.id, { status: 'paid', note: `${t.paidByWallet}: ${signature}` });
+      await loadAdmin();
+      setNotice({ kind: 'ok', text: `${t.paidByWallet}: ${short(signature)}` });
+    } catch (error) {
+      setNotice({ kind: 'error', text: error instanceof Error ? error.message : 'Payment failed' });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function copyReferralLink() {
     if (!referralLink) return;
     await navigator.clipboard.writeText(referralLink);
     setNotice({ kind: 'ok', text: language === 'zh' ? '推荐链接已复制' : 'Referral link copied' });
+  }
+
+  async function copyText(value: string, successText: string) {
+    await navigator.clipboard.writeText(value);
+    setNotice({ kind: 'ok', text: successText });
+  }
+
+  function openAdmin() {
+    setAdminMode(true);
+    window.location.hash = 'admin';
+    void loadAdmin().catch((error) => setNotice({ kind: 'error', text: error.message }));
+  }
+
+  function closeAdmin() {
+    setAdminMode(false);
+    history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
   }
 
   return (
@@ -208,6 +275,11 @@ export function App() {
           </div>
         </div>
         <nav className="utility-actions">
+          {me?.user.isAdmin && (
+            <button className="soft-action" onClick={adminMode ? closeAdmin : openAdmin}>
+              {adminMode ? t.userHome : t.adminPanel}
+            </button>
+          )}
           <a className={!env.telegramUrl ? 'disabled' : ''} href={env.telegramUrl || undefined} target="_blank" rel="noreferrer">
             {t.telegram}
           </a>
@@ -246,7 +318,7 @@ export function App() {
 
       {notice && <div className={`notice ${notice.kind}`}>{notice.text}</div>}
 
-      <section className="grid">
+      {!adminMode && <section className="grid">
         <Panel title={t.dashboard} icon={<WalletCards size={20} />}>
           <div className="metric-grid">
             <div className="metric">
@@ -305,7 +377,7 @@ export function App() {
               <span>SOL</span>
             </div>
           </label>
-          <div className="muted">{language === 'zh' ? '10 SOL 起购买' : 'Minimum 10 SOL'}</div>
+          <div className="muted">{language === 'zh' ? '1 SOL 起购买' : 'Minimum 1 SOL'}</div>
           <button className="primary-action" disabled={!me || busy} onClick={stake}>{t.submitStake}</button>
         </Panel>
 
@@ -320,14 +392,14 @@ export function App() {
           <div className="muted">{language === 'zh' ? '1 SOL 起提现' : 'Minimum 1 SOL'}</div>
           <button className="primary-action" disabled={!me || busy} onClick={withdraw}>{t.submitWithdraw}</button>
         </Panel>
-      </section>
+      </section>}
 
-      <section className="tables">
+      {!adminMode && <section className="tables">
         <Activity title={t.stakes} rows={me?.stakes ?? []} empty={language === 'zh' ? '暂无购买记录' : 'No purchase records'} />
         <WithdrawalTable title={t.withdrawals} rows={me?.withdrawals ?? []} t={t} empty={language === 'zh' ? '暂无提现申请' : 'No withdrawals'} />
-      </section>
+      </section>}
 
-      <section className="tables">
+      {!adminMode && <section className="tables">
         <section className="table-wrap">
           <h2>{t.referralRecords}</h2>
           {(me?.community.records.length ?? 0) === 0 ? <p className="muted">{language === 'zh' ? '暂无推荐记录' : 'No referral records'}</p> : me!.community.records.map((record) => (
@@ -338,9 +410,18 @@ export function App() {
             </div>
           ))}
         </section>
-      </section>
+      </section>}
 
-      {me?.user.isAdmin && (
+      {adminMode && !me?.user.isAdmin && (
+        <section className="admin admin-lock">
+          <Panel title={t.adminPanel} icon={<ShieldCheck size={20} />}>
+            <p className="muted">{language === 'zh' ? '请使用管理员钱包签名登录。普通用户不会看到后台内容。' : 'Sign in with the admin wallet. Regular users cannot see admin content.'}</p>
+            <button className="primary-action" disabled={busy} onClick={signIn}>{t.signIn}</button>
+          </Panel>
+        </section>
+      )}
+
+      {adminMode && me?.user.isAdmin && (
         <section className="admin">
           <h2>{t.admin}</h2>
           <div className="admin-grid">
@@ -377,7 +458,10 @@ export function App() {
                 {adminWithdrawals.map((item) => (
                   <div className="row admin-row" key={item.id}>
                     <span>{short(item.wallet || '')} · {item.sol} SOL · {t[item.status]}</span>
+                    <small>{t.destination}: {short(item.destination)}</small>
                     <div className="segmented">
+                      <button disabled={busy} onClick={() => copyText(item.destination, language === 'zh' ? '收款钱包已复制' : 'Destination copied')}>{t.copyDestination}</button>
+                      <button disabled={busy || item.status === 'paid'} onClick={() => payWithdrawal(item)}>{t.payWithdrawal}</button>
                       {(['approved', 'rejected', 'paid'] as const).map((status) => (
                         <button key={status} onClick={() => updateWithdrawal(item, status)}>{t[status]}</button>
                       ))}
@@ -401,6 +485,40 @@ export function App() {
       )}
     </main>
   );
+}
+
+function getSolanaProvider() {
+  return window.solana ?? window.phantom?.solana ?? window.tokenpocket?.solana ?? window.solflare ?? null;
+}
+
+async function connectWallet(provider: SolanaProvider) {
+  const result = await provider.connect();
+  const key = toPublicKey(result?.publicKey ?? provider.publicKey);
+  if (!key) throw new Error('Wallet connection failed');
+  return key;
+}
+
+function toPublicKey(value: SolanaProvider['publicKey'] | undefined) {
+  if (!value) return null;
+  if (value instanceof PublicKey) return value;
+  if (typeof value === 'string') return new PublicKey(value);
+  return new PublicKey(value.toBase58());
+}
+
+async function sendWalletTransaction(provider: SolanaProvider, tx: Transaction, connection: Connection) {
+  if (provider.signAndSendTransaction) {
+    const result = await provider.signAndSendTransaction(tx);
+    const signature = typeof result === 'string' ? result : result.signature;
+    if (signature) return signature;
+  }
+  if (provider.sendTransaction) {
+    return provider.sendTransaction(tx, connection, { skipPreflight: false, preflightCommitment: 'confirmed' });
+  }
+  if (provider.signTransaction) {
+    const signed = await provider.signTransaction(tx);
+    return connection.sendRawTransaction(signed.serialize(), { skipPreflight: false, preflightCommitment: 'confirmed' });
+  }
+  throw new Error('This wallet cannot send Solana transactions');
 }
 
 function Panel({ title, icon, children }: { title: string; icon?: ReactNode; children: ReactNode }) {

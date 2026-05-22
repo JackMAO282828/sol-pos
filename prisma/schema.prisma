@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "sqlite"
   url      = env("DATABASE_URL")
 }
 
@@ -95,8 +95,8 @@ model AdminOperation {
 
 model YieldSetting {
   id          String   @id @default(cuid())
-  date        DateTime @unique @db.Date
-  dailyRate   Decimal  @db.Decimal(10, 6)
+  date        DateTime @unique
+  dailyRate   Decimal
   adminWallet String
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
