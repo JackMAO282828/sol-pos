@@ -5,14 +5,62 @@ import { authenticate, requireAdmin } from '../middleware/auth.js';
 import { prisma } from '../prisma.js';
 import { asyncHandler } from '../utils/async.js';
 import { lamportsToSolString } from '../utils/amount.js';
+import { calculateAccountBalance, getYieldSettingsBundle } from '../utils/balance.js';
 import { formatShanghaiDate, startOfShanghaiDay } from '../utils/yield.js';
 
 export const adminRouter = Router();
 adminRouter.use('/admin', authenticate, requireAdmin);
 
 adminRouter.get('/admin/users', asyncHandler(async (_req, res) => {
-  const users = await prisma.user.findMany({ orderBy: { createdAt: 'desc' }, include: { _count: { select: { stakes: true, withdrawals: true } } } });
-  res.json({ users });
+  const [{ settings, latest }, users] = await Promise.all([
+    getYieldSettingsBundle(),
+    prisma.user.findMany({
+      orderBy: { createdAt: 'desc' },
+      include: {
+        stakes: true,
+        withdrawals: true,
+        referrals: { include: { stakes: true } },
+        _count: { select: { stakes: true, withdrawals: true, referrals: true } }
+      }
+    })
+  ]);
+  res.json({
+    users: users.map((user) => {
+      const stakedLamports = user.stakes.reduce((sum, stake) => sum + stake.lamports, 0n);
+      const balance = calculateAccountBalance({
+        stakes: user.stakes,
+        withdrawals: user.withdrawals,
+        referrals: user.referrals,
+        settings,
+        latest
+      });
+      return {
+        id: user.id,
+        wallet: user.wallet,
+        createdAt: user.createdAt,
+        referrerId: user.referrerId,
+        _count: user._count,
+        totals: {
+          stakedLamports: stakedLamports.toString(),
+          stakedSol: lamportsToSolString(stakedLamports)
+        },
+        yield: balance.yieldSummary,
+        community: {
+          referralCount: balance.referralRecords.length,
+          referralTotalYieldLamports: balance.referralTotalLamports.toString(),
+          referralTotalYieldSol: lamportsToSolString(balance.referralTotalLamports)
+        },
+        withdrawals: {
+          lockedLamports: balance.lockedWithdrawalLamports.toString(),
+          lockedSol: lamportsToSolString(balance.lockedWithdrawalLamports),
+          withdrawableLamports: balance.withdrawableLamports.toString(),
+          withdrawableSol: lamportsToSolString(balance.withdrawableLamports),
+          earnedLamports: balance.earnedLamports.toString(),
+          earnedSol: lamportsToSolString(balance.earnedLamports)
+        }
+      };
+    })
+  });
 }));
 
 adminRouter.get('/admin/stakes', asyncHandler(async (_req, res) => {
@@ -22,7 +70,36 @@ adminRouter.get('/admin/stakes', asyncHandler(async (_req, res) => {
 
 adminRouter.get('/admin/withdrawals', asyncHandler(async (_req, res) => {
   const withdrawals = await prisma.withdrawal.findMany({ orderBy: { createdAt: 'desc' }, take: 200 });
-  res.json({ withdrawals: withdrawals.map((withdrawal) => ({ ...withdrawal, lamports: withdrawal.lamports.toString(), sol: lamportsToSolString(withdrawal.lamports) })) });
+  const userIds = [...new Set(withdrawals.map((withdrawal) => withdrawal.userId))];
+  const [{ settings, latest }, users] = await Promise.all([
+    getYieldSettingsBundle(),
+    prisma.user.findMany({
+      where: { id: { in: userIds } },
+      include: { stakes: true, withdrawals: true, referrals: { include: { stakes: true } } }
+    })
+  ]);
+  const balancesByUserId = new Map(users.map((user) => [
+    user.id,
+    calculateAccountBalance({ stakes: user.stakes, withdrawals: user.withdrawals, referrals: user.referrals, settings, latest })
+  ]));
+  res.json({
+    withdrawals: withdrawals.map((withdrawal) => {
+      const balance = balancesByUserId.get(withdrawal.userId);
+      return {
+        ...withdrawal,
+        lamports: withdrawal.lamports.toString(),
+        sol: lamportsToSolString(withdrawal.lamports),
+        userBalance: balance ? {
+          earnedLamports: balance.earnedLamports.toString(),
+          earnedSol: lamportsToSolString(balance.earnedLamports),
+          lockedWithdrawalLamports: balance.lockedWithdrawalLamports.toString(),
+          lockedWithdrawalSol: lamportsToSolString(balance.lockedWithdrawalLamports),
+          withdrawableLamports: balance.withdrawableLamports.toString(),
+          withdrawableSol: lamportsToSolString(balance.withdrawableLamports)
+        } : null
+      };
+    })
+  });
 }));
 
 adminRouter.get('/admin/yields', asyncHandler(async (_req, res) => {

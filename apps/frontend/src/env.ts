@@ -24,7 +24,7 @@ function normalizeApiBaseUrl(value: string) {
 
 export const env = {
   apiBaseUrl: normalizeApiBaseUrl(import.meta.env.VITE_API_BASE_URL || defaultApiBaseUrl()),
-  solanaRpcUrl: import.meta.env.VITE_SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com',
+  solanaRpcUrl: import.meta.env.VITE_SOLANA_RPC_URL || 'https://solana-rpc.publicnode.com',
   stakeReceiverAddress: import.meta.env.VITE_STAKE_RECEIVER_ADDRESS || '',
   telegramUrl: import.meta.env.VITE_TELEGRAM_URL || '',
   xUrl: import.meta.env.VITE_X_URL || ''

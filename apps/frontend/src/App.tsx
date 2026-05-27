@@ -46,6 +46,9 @@ export function App() {
   const t = copy[language];
   const connection = useMemo(() => new Connection(env.solanaRpcUrl, 'confirmed'), []);
   const referralLink = me ? `${window.location.origin}?ref=${me.user.wallet}` : '';
+  const withdrawableSol = Number(me?.community.combinedWithdrawableSol ?? '0');
+  const requestedWithdrawSol = Number(withdrawAmount);
+  const canWithdraw = Boolean(me) && Number.isFinite(requestedWithdrawSol) && requestedWithdrawSol >= 1 && requestedWithdrawSol <= withdrawableSol;
 
   useEffect(() => {
     document.documentElement.lang = language === 'zh' ? 'zh-CN' : 'en';
@@ -198,6 +201,10 @@ export function App() {
         setNotice({ kind: 'error', text: language === 'zh' ? '1 SOL 起提现' : 'Minimum withdrawal is 1 SOL' });
         return;
       }
+      if (Number(withdrawAmount) > Number(me?.community.combinedWithdrawableSol ?? '0')) {
+        setNotice({ kind: 'error', text: language === 'zh' ? `可提现余额不足，当前可提现 ${me?.community.combinedWithdrawableSol ?? '0'} SOL` : `Insufficient withdrawable balance. Available: ${me?.community.combinedWithdrawableSol ?? '0'} SOL` });
+        return;
+      }
       await api.createWithdrawal({ amountSol: withdrawAmount, destination });
       await refreshMe();
       setNotice({ kind: 'ok', text: language === 'zh' ? '提现申请已提交' : 'Withdrawal requested' });
@@ -348,8 +355,16 @@ export function App() {
               <strong>{me?.community.referralTotalYieldSol ?? '0'} SOL</strong>
             </div>
             <div className="metric">
+              <span>{language === 'zh' ? '累计收益' : 'Earned'}</span>
+              <strong>{me?.community.combinedEarnedSol ?? '0'} SOL</strong>
+            </div>
+            <div className="metric">
               <span>{t.withdrawable}</span>
               <strong>{me?.community.combinedWithdrawableSol ?? '0'} SOL</strong>
+            </div>
+            <div className="metric">
+              <span>{language === 'zh' ? '已占用提现' : 'Locked withdrawals'}</span>
+              <strong>{me?.community.lockedWithdrawalSol ?? '0'} SOL</strong>
             </div>
           </div>
           <div className="rule-list">
@@ -389,8 +404,10 @@ export function App() {
               <span>SOL</span>
             </div>
           </label>
-          <div className="muted">{language === 'zh' ? '1 SOL 起提现' : 'Minimum 1 SOL'}</div>
-          <button className="primary-action" disabled={!me || busy} onClick={withdraw}>{t.submitWithdraw}</button>
+          <div className="muted">
+            {language === 'zh' ? `1 SOL 起提现，当前可提现 ${me?.community.combinedWithdrawableSol ?? '0'} SOL` : `Minimum 1 SOL. Available: ${me?.community.combinedWithdrawableSol ?? '0'} SOL`}
+          </div>
+          <button className="primary-action" disabled={!canWithdraw || busy} onClick={withdraw}>{t.submitWithdraw}</button>
         </Panel>
       </section>}
 
@@ -430,7 +447,9 @@ export function App() {
                 {adminUsers.map((user) => (
                   <div className="row" key={user.id}>
                     <span>{short(user.wallet)}</span>
-                    <small>{user._count.stakes} stakes / {user._count.withdrawals} withdrawals</small>
+                    <small>{language === 'zh' ? '本金' : 'Staked'} {user.totals.stakedSol} SOL · {language === 'zh' ? '总收益' : 'Earned'} {user.withdrawals.earnedSol} SOL</small>
+                    <small>{language === 'zh' ? '可提现' : 'Available'} {user.withdrawals.withdrawableSol} SOL · {language === 'zh' ? '已占用' : 'Locked'} {user.withdrawals.lockedSol} SOL</small>
+                    <small>{language === 'zh' ? '推荐收益' : 'Referral yield'} {user.community.referralTotalYieldSol} SOL · {user._count.stakes} stakes / {user._count.withdrawals} withdrawals / {user._count.referrals} refs</small>
                   </div>
                 ))}
               </div>
@@ -459,11 +478,16 @@ export function App() {
                   <div className="row admin-row" key={item.id}>
                     <span>{short(item.wallet || '')} · {item.sol} SOL · {t[item.status]}</span>
                     <small>{t.destination}: {short(item.destination)}</small>
+                    {item.userBalance && (
+                      <small>
+                        {language === 'zh' ? '用户收益' : 'Earned'} {item.userBalance.earnedSol} SOL · {language === 'zh' ? '可提现' : 'Available'} {item.userBalance.withdrawableSol} SOL · {language === 'zh' ? '已占用' : 'Locked'} {item.userBalance.lockedWithdrawalSol} SOL
+                      </small>
+                    )}
                     <div className="segmented">
                       <button disabled={busy} onClick={() => copyText(item.destination, language === 'zh' ? '收款钱包已复制' : 'Destination copied')}>{t.copyDestination}</button>
-                      <button disabled={busy || item.status === 'paid'} onClick={() => payWithdrawal(item)}>{t.payWithdrawal}</button>
+                      <button disabled={busy || item.status !== 'approved'} onClick={() => payWithdrawal(item)}>{t.payWithdrawal}</button>
                       {(['approved', 'rejected', 'paid'] as const).map((status) => (
-                        <button key={status} onClick={() => updateWithdrawal(item, status)}>{t[status]}</button>
+                        <button disabled={busy || item.status === status} key={status} onClick={() => updateWithdrawal(item, status)}>{t[status]}</button>
                       ))}
                     </div>
                   </div>

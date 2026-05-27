@@ -20,6 +20,14 @@ export type Withdrawal = {
   createdAt: string;
   updatedAt?: string;
   wallet?: string;
+  userBalance?: {
+    earnedLamports: string;
+    earnedSol: string;
+    lockedWithdrawalLamports: string;
+    lockedWithdrawalSol: string;
+    withdrawableLamports: string;
+    withdrawableSol: string;
+  } | null;
 };
 
 export type MeResponse = {
@@ -45,13 +53,20 @@ export type MeResponse = {
     referralDailyYieldSol: string;
     referralTotalYieldLamports: string;
     referralTotalYieldSol: string;
+    combinedEarnedLamports: string;
+    combinedEarnedSol: string;
+    lockedWithdrawalLamports: string;
+    lockedWithdrawalSol: string;
     combinedWithdrawableLamports: string;
     combinedWithdrawableSol: string;
     records: Array<{
       wallet: string;
       createdAt: string;
+      hashrateLamports: string;
       hashrateSol: string;
+      dailyReferralLamports: string;
       dailyReferralSol: string;
+      totalReferralLamports: string;
       totalReferralSol: string;
     }>;
   };
@@ -72,7 +87,22 @@ export type AdminUser = {
   id: string;
   wallet: string;
   createdAt: string;
-  _count: { stakes: number; withdrawals: number };
+  _count: { stakes: number; withdrawals: number; referrals: number };
+  totals: { stakedLamports: string; stakedSol: string };
+  yield: MeResponse['yield'];
+  community: {
+    referralCount: number;
+    referralTotalYieldLamports: string;
+    referralTotalYieldSol: string;
+  };
+  withdrawals: {
+    lockedLamports: string;
+    lockedSol: string;
+    withdrawableLamports: string;
+    withdrawableSol: string;
+    earnedLamports: string;
+    earnedSol: string;
+  };
 };
 
 let token = localStorage.getItem('sollll_token') || '';
