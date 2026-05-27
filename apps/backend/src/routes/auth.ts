@@ -46,8 +46,12 @@ authRouter.post('/login', asyncHandler(async (req, res) => {
     return { id: `dev-${body.wallet}`, wallet: body.wallet, referrerId: null };
   });
   if (body.referrerWallet && body.referrerWallet !== body.wallet && !user.referrerId) {
-    await prisma.user.findUnique({ where: { wallet: body.referrerWallet } }).then(async (referrer) => {
-      if (referrer && referrer.id !== user.id) {
+    await Promise.all([
+      prisma.user.findUnique({ where: { wallet: body.referrerWallet } }),
+      prisma.stake.count({ where: { userId: user.id } }),
+      prisma.withdrawal.count({ where: { userId: user.id } })
+    ]).then(async ([referrer, stakeCount, withdrawalCount]) => {
+      if (referrer && referrer.id !== user.id && stakeCount === 0 && withdrawalCount === 0) {
         await prisma.user.update({ where: { id: user.id }, data: { referrerId: referrer.id } });
       }
     }).catch((error) => {
