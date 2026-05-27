@@ -83,15 +83,20 @@ export function setToken(nextToken: string) {
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const response = await fetch(`${env.apiBaseUrl}${path}`, {
-    ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...init.headers
-    },
-    credentials: 'include'
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${env.apiBaseUrl}${path}`, {
+      ...init,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...init.headers
+      },
+      credentials: 'include'
+    });
+  } catch {
+    throw new Error(`API is unreachable: ${env.apiBaseUrl}`);
+  }
   const json = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(json.error || 'Request failed');
   return json as T;

@@ -15,15 +15,24 @@ export const app = express();
 
 if (config.TRUST_PROXY === '1' || config.TRUST_PROXY === 'true') app.set('trust proxy', 1);
 
-const configuredOrigins = config.CORS_ORIGIN.split(',').map((origin) => origin.trim()).filter(Boolean);
+function normalizeOrigin(origin: string) {
+  try {
+    return new URL(origin).origin;
+  } catch {
+    return origin.replace(/\/+$/, '');
+  }
+}
+
+const configuredOrigins = new Set(config.CORS_ORIGIN.split(',').map((origin) => normalizeOrigin(origin.trim())).filter(Boolean));
 const privateNetworkOrigin = /^https?:\/\/(localhost|127\.0\.0\.1|192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3})(:\d+)?$/;
 
 app.use(helmet());
 app.use(cors({
   origin(origin, callback) {
     if (!origin) return callback(null, true);
-    if (configuredOrigins.includes(origin)) return callback(null, true);
-    if (config.NODE_ENV !== 'production' && privateNetworkOrigin.test(origin)) return callback(null, true);
+    const normalizedOrigin = normalizeOrigin(origin);
+    if (configuredOrigins.has(normalizedOrigin)) return callback(null, true);
+    if (config.NODE_ENV !== 'production' && privateNetworkOrigin.test(normalizedOrigin)) return callback(null, true);
     return callback(new Error('CORS origin is not allowed'));
   },
   credentials: true
@@ -39,7 +48,8 @@ app.use('/api', meRouter, stakesRouter, withdrawalsRouter, adminRouter);
 app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   if (err instanceof ZodError) return void res.status(400).json({ error: 'Validation failed', details: err.flatten() });
   const message = err instanceof Error ? err.message : 'Unexpected server error';
-  res.status(message.includes('not found') ? 404 : 500).json({ error: message });
+  const status = message === 'CORS origin is not allowed' ? 403 : message.includes('not found') ? 404 : 500;
+  res.status(status).json({ error: message });
 });
 
 if (process.env.NODE_ENV !== 'test') {
