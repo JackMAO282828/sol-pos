@@ -32,19 +32,21 @@ export function calculateYieldSummaryFromSettings(stakes: Pick<Stake, 'lamports'
   let totalYieldLamports = 0n;
   const today = todayShanghai();
   const defaultRate = config.DEFAULT_DAILY_YIELD_RATE;
+  const sortedSettings = settings
+    .map((setting) => ({ date: startOfShanghaiDay(setting.date), rate: rateToNumber(setting.dailyRate) }))
+    .sort((a, b) => a.date.getTime() - b.date.getTime());
 
   for (const stake of stakes) {
     const stakeDay = startOfShanghaiDay(stake.createdAt);
-    if (settings.length === 0) {
-      const activeDays = Math.max(0, Math.floor((today.getTime() - stakeDay.getTime()) / (24 * 60 * 60 * 1000)) + 1);
-      totalYieldLamports += BigInt(Math.floor(Number(stake.lamports) * defaultRate * activeDays));
-    } else {
-      for (const setting of settings) {
-        const settingDay = startOfShanghaiDay(setting.date);
-        if (settingDay < stakeDay || settingDay > today) continue;
-        const rate = rateToNumber(setting.dailyRate);
-        totalYieldLamports += BigInt(Math.floor(Number(stake.lamports) * rate));
+    if (stakeDay > today) continue;
+    let settingIndex = 0;
+    let activeRate = defaultRate;
+    for (let day = stakeDay; day <= today; day = addUtcDays(day, 1)) {
+      while (settingIndex < sortedSettings.length && sortedSettings[settingIndex].date <= day) {
+        activeRate = sortedSettings[settingIndex].rate;
+        settingIndex += 1;
       }
+      totalYieldLamports += BigInt(Math.floor(Number(stake.lamports) * activeRate));
     }
   }
 
@@ -73,4 +75,8 @@ function trimNumber(value: number) {
 export function formatShanghaiDate(date: Date) {
   const shanghai = new Date(date.getTime() + SHANGHAI_OFFSET_MS);
   return shanghai.toISOString().slice(0, 10);
+}
+
+function addUtcDays(date: Date, days: number) {
+  return new Date(date.getTime() + days * 24 * 60 * 60 * 1000);
 }
