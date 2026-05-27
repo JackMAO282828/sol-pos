@@ -109,7 +109,8 @@ let token = localStorage.getItem('sollll_token') || '';
 
 export function setToken(nextToken: string) {
   token = nextToken;
-  localStorage.setItem('sollll_token', nextToken);
+  if (nextToken) localStorage.setItem('sollll_token', nextToken);
+  else localStorage.removeItem('sollll_token');
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {

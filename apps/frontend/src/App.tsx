@@ -1,4 +1,4 @@
-import { Languages, Send, ShieldCheck, Wallet, WalletCards } from 'lucide-react';
+import { Languages, LogOut, Send, ShieldCheck, Wallet, WalletCards } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Connection, PublicKey, Transaction } from '@solana/web3.js';
@@ -13,6 +13,7 @@ type SolanaProvider = {
   isTokenPocket?: boolean;
   publicKey?: PublicKey | string | { toBase58: () => string };
   connect: (options?: { onlyIfTrusted?: boolean }) => Promise<{ publicKey?: PublicKey | string | { toBase58: () => string } } | void>;
+  disconnect?: () => Promise<void> | void;
   signMessage?: (message: Uint8Array, encoding?: string) => Promise<{ signature?: Uint8Array } | Uint8Array>;
   signAndSendTransaction?: (transaction: Transaction) => Promise<{ signature?: string } | string>;
   signTransaction?: (transaction: Transaction) => Promise<Transaction>;
@@ -143,6 +144,26 @@ export function App() {
       setNotice({ kind: 'ok', text: language === 'zh' ? '登录成功' : 'Signed in' });
     } catch (error) {
       setNotice({ kind: 'error', text: error instanceof Error ? error.message : 'Sign in failed' });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function signOut() {
+    setBusy(true);
+    try {
+      setToken('');
+      setMe(null);
+      setAdminUsers([]);
+      setAdminStakes([]);
+      setAdminWithdrawals([]);
+      setAdminYields([]);
+      setPublicKey(null);
+      const provider = getSolanaProvider();
+      await provider?.disconnect?.();
+      setNotice({ kind: 'ok', text: language === 'zh' ? '已退出，可以切换钱包重新登录' : 'Signed out. You can switch wallets and sign in again.' });
+    } catch (error) {
+      setNotice({ kind: 'error', text: error instanceof Error ? error.message : 'Sign out failed' });
     } finally {
       setBusy(false);
     }
@@ -298,10 +319,18 @@ export function App() {
           </button>
         </nav>
         <nav className="actions">
-          <button className="wallet-button primary-action" disabled={busy} onClick={signIn}>
-            <Wallet size={18} />
-            {me ? shortWallet : t.signIn}
-          </button>
+          <div className="wallet-actions">
+            <button className="wallet-button primary-action" disabled={busy} onClick={signIn}>
+              <Wallet size={18} />
+              {me ? shortWallet : t.signIn}
+            </button>
+            {me && (
+              <button className="sign-out-button" disabled={busy} onClick={signOut} title={t.switchWallet} aria-label={t.switchWallet}>
+                <LogOut size={18} />
+                {t.signOut}
+              </button>
+            )}
+          </div>
         </nav>
       </header>
 

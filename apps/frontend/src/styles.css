@@ -187,6 +187,22 @@ a {
   box-shadow: 0 16px 36px rgba(210, 166, 69, 0.2);
 }
 
+.wallet-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+}
+
+.sign-out-button {
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.055);
+  color: #f7f3e8;
+  box-shadow: none;
+  white-space: nowrap;
+}
+
 .primary-action {
   width: 100%;
 }
@@ -547,6 +563,10 @@ a {
 
   .wallet-button {
     width: 100%;
+  }
+
+  .wallet-actions {
+    grid-template-columns: 1fr;
   }
 
   .utility-actions a.disabled {
