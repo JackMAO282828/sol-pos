@@ -6,7 +6,7 @@ function defaultApiBaseUrl() {
   if (typeof window === 'undefined') return 'http://localhost:4000';
   const { protocol, hostname } = window.location;
   if (isLocalHost(hostname)) return `${protocol}//${hostname}:4000`;
-  return `https://api.${hostname.replace(/^www\./, '')}`;
+  return window.location.origin;
 }
 
 function normalizeApiBaseUrl(value: string) {
