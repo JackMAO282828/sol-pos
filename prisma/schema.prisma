@@ -17,6 +17,7 @@ enum WithdrawalStatus {
 model User {
   id          String       @id @default(cuid())
   wallet      String       @unique
+  adminNote   String?
   referrerId  String?
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt

@@ -37,6 +37,7 @@ adminRouter.get('/admin/users', asyncHandler(async (_req, res) => {
       return {
         id: user.id,
         wallet: user.wallet,
+        adminNote: user.adminNote,
         createdAt: user.createdAt,
         referrerId: user.referrerId,
         _count: user._count,
@@ -61,6 +62,25 @@ adminRouter.get('/admin/users', asyncHandler(async (_req, res) => {
       };
     })
   });
+}));
+
+adminRouter.patch('/admin/users/:id/note', asyncHandler(async (req, res) => {
+  const body = z.object({ adminNote: z.string().max(1000).optional().nullable() }).parse(req.body);
+  const userId = String(req.params.id);
+  const adminNote = body.adminNote?.trim() ? body.adminNote.trim() : null;
+  const user = await prisma.user.update({
+    where: { id: userId },
+    data: { adminNote }
+  }).catch(() => null);
+  if (!user) return void res.status(404).json({ error: 'User not found' });
+  await prisma.adminOperation.create({
+    data: {
+      adminWallet: req.user!.wallet,
+      action: 'user_note_update',
+      note: `Updated note for ${user.wallet}`
+    }
+  });
+  res.json({ user: { id: user.id, wallet: user.wallet, adminNote: user.adminNote } });
 }));
 
 adminRouter.get('/admin/stakes', asyncHandler(async (_req, res) => {

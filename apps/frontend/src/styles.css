@@ -35,7 +35,9 @@ body {
 }
 
 button,
-input {
+input,
+select,
+textarea {
   font: inherit;
 }
 
@@ -68,6 +70,26 @@ input {
   padding: 0 12px;
   background: rgba(255, 255, 255, 0.045);
   color: #fff;
+}
+
+select,
+textarea {
+  width: 100%;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.045);
+  color: #fff;
+}
+
+select {
+  min-height: 44px;
+  padding: 0 12px;
+}
+
+textarea {
+  min-height: 76px;
+  padding: 10px 12px;
+  resize: vertical;
 }
 
 .amount-input {
@@ -307,6 +329,46 @@ a {
   grid-template-columns: 0.8fr 1.4fr 0.8fr;
 }
 
+.admin-grid > .panel:first-child {
+  grid-column: 1 / -1;
+}
+
+.admin-toolbar {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(180px, 260px) auto;
+  gap: 10px;
+  align-items: end;
+  margin: 0 0 16px;
+}
+
+.search-field,
+.select-field {
+  display: grid;
+  gap: 6px;
+}
+
+.search-field {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  padding: 0 12px;
+  min-height: 46px;
+  background: rgba(255, 255, 255, 0.045);
+  color: var(--text-muted);
+}
+
+.search-field input {
+  min-height: 44px;
+  border: 0;
+  padding: 0;
+  background: transparent;
+}
+
+.select-field span {
+  color: var(--text-muted);
+}
+
 .panel,
 .table-wrap {
   padding: 18px;
@@ -464,6 +526,72 @@ a {
   overflow: auto;
 }
 
+.admin-user-table {
+  display: grid;
+  gap: 0;
+  overflow: auto;
+}
+
+.admin-user-head,
+.admin-user-row {
+  display: grid;
+  grid-template-columns: minmax(190px, 1fr) minmax(210px, 1.1fr) minmax(170px, 0.9fr) minmax(260px, 1.2fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.admin-user-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 10px 0;
+  color: var(--text-muted);
+  background: rgba(22, 31, 36, 0.98);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.admin-user-row {
+  border-top: 1px solid var(--line);
+  padding: 14px 0;
+}
+
+.wallet-cell,
+.stat-cell,
+.note-cell {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+
+.wallet-cell strong,
+.stat-cell strong {
+  color: #f7f3e8;
+}
+
+.wallet-cell strong {
+  overflow-wrap: anywhere;
+}
+
+.wallet-cell small,
+.stat-cell,
+.note-cell {
+  color: var(--text-muted);
+}
+
+.icon-mini {
+  width: 34px;
+  min-height: 32px;
+  padding: 0;
+  box-shadow: none;
+}
+
+.note-cell button {
+  justify-self: start;
+  min-height: 34px;
+  padding: 0 12px;
+}
+
 .admin-row {
   gap: 10px;
 }
@@ -501,8 +629,15 @@ a {
 
   .grid,
   .tables,
-  .admin-grid {
+  .admin-grid,
+  .admin-toolbar,
+  .admin-user-head,
+  .admin-user-row {
     grid-template-columns: 1fr;
+  }
+
+  .admin-user-head {
+    display: none;
   }
 
   .grid .panel:nth-child(1) {

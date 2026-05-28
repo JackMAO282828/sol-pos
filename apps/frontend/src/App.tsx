@@ -1,4 +1,4 @@
-import { Languages, LogOut, Send, ShieldCheck, Wallet, WalletCards } from 'lucide-react';
+import { Copy, Languages, LogOut, Save, Search, Send, ShieldCheck, Wallet, WalletCards } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Connection, PublicKey, Transaction } from '@solana/web3.js';
@@ -8,6 +8,7 @@ import { buildStakeTransaction } from './solana';
 import { copy, Language } from './i18n';
 
 type Notice = { kind: 'ok' | 'error'; text: string } | null;
+type AdminUserSort = 'created' | 'withdrawable' | 'earned' | 'stakes' | 'withdrawals';
 type SolanaProvider = {
   isPhantom?: boolean;
   isTokenPocket?: boolean;
@@ -40,6 +41,9 @@ export function App() {
   const [adminWithdrawals, setAdminWithdrawals] = useState<Withdrawal[]>([]);
   const [adminYields, setAdminYields] = useState<YieldSetting[]>([]);
   const [dailyRatePercent, setDailyRatePercent] = useState('');
+  const [adminUserSearch, setAdminUserSearch] = useState('');
+  const [adminUserSort, setAdminUserSort] = useState<AdminUserSort>('created');
+  const [adminUserNotes, setAdminUserNotes] = useState<Record<string, string>>({});
   const [adminMode, setAdminMode] = useState(() => window.location.hash === '#admin' || new URLSearchParams(window.location.search).get('admin') === '1');
   const [referrerWallet] = useState(() => new URLSearchParams(window.location.search).get('ref') || localStorage.getItem('solpos_referrer') || '');
   const [busy, setBusy] = useState(false);
@@ -50,6 +54,20 @@ export function App() {
   const withdrawableSol = Number(me?.community.combinedWithdrawableSol ?? '0');
   const requestedWithdrawSol = Number(withdrawAmount);
   const canWithdraw = Boolean(me) && Number.isFinite(requestedWithdrawSol) && requestedWithdrawSol >= 1 && requestedWithdrawSol <= withdrawableSol;
+  const filteredAdminUsers = useMemo(() => {
+    const query = adminUserSearch.trim().toLowerCase();
+    const users = query
+      ? adminUsers.filter((user) => [user.wallet, user.adminNote ?? ''].some((value) => value.toLowerCase().includes(query)))
+      : adminUsers;
+    const sorted = [...users].sort((a, b) => {
+      if (adminUserSort === 'withdrawable') return Number(b.withdrawals.withdrawableSol) - Number(a.withdrawals.withdrawableSol);
+      if (adminUserSort === 'earned') return Number(b.withdrawals.earnedSol) - Number(a.withdrawals.earnedSol);
+      if (adminUserSort === 'stakes') return b._count.stakes - a._count.stakes;
+      if (adminUserSort === 'withdrawals') return b._count.withdrawals - a._count.withdrawals;
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    });
+    return sorted;
+  }, [adminUserSearch, adminUserSort, adminUsers]);
 
   useEffect(() => {
     document.documentElement.lang = language === 'zh' ? 'zh-CN' : 'en';
@@ -93,6 +111,7 @@ export function App() {
       api.adminYields()
     ]);
     setAdminUsers(users.users);
+    setAdminUserNotes(Object.fromEntries(users.users.map((user) => [user.id, user.adminNote ?? ''])));
     setAdminStakes(stakes.stakes);
     setAdminWithdrawals(withdrawals.withdrawals);
     setAdminYields(yields.yields);
@@ -243,6 +262,18 @@ export function App() {
       setNotice({ kind: 'ok', text: language === 'zh' ? '状态已更新' : 'Status updated' });
     } catch (error) {
       setNotice({ kind: 'error', text: error instanceof Error ? error.message : 'Update failed' });
+    }
+  }
+
+  async function saveAdminUserNote(user: AdminUser) {
+    try {
+      const adminNote = adminUserNotes[user.id] ?? '';
+      const result = await api.updateAdminUserNote(user.id, { adminNote });
+      setAdminUsers((users) => users.map((item) => item.id === user.id ? { ...item, adminNote: result.user.adminNote ?? '' } : item));
+      setAdminUserNotes((notes) => ({ ...notes, [user.id]: result.user.adminNote ?? '' }));
+      setNotice({ kind: 'ok', text: language === 'zh' ? '客户备注已保存' : 'User note saved' });
+    } catch (error) {
+      setNotice({ kind: 'error', text: error instanceof Error ? error.message : 'Save failed' });
     }
   }
 
@@ -470,15 +501,73 @@ export function App() {
       {adminMode && me?.user.isAdmin && (
         <section className="admin">
           <h2>{t.admin}</h2>
+          <div className="admin-toolbar">
+            <label className="search-field">
+              <Search size={18} />
+              <input
+                value={adminUserSearch}
+                onChange={(event) => setAdminUserSearch(event.target.value)}
+                placeholder={language === 'zh' ? '搜索钱包或客户备注' : 'Search wallet or note'}
+              />
+            </label>
+            <label className="select-field">
+              <span>{language === 'zh' ? '排序' : 'Sort'}</span>
+              <select value={adminUserSort} onChange={(event) => setAdminUserSort(event.target.value as AdminUserSort)}>
+                <option value="created">{language === 'zh' ? '最新用户' : 'Newest users'}</option>
+                <option value="withdrawable">{language === 'zh' ? '可提现最多' : 'Most withdrawable'}</option>
+                <option value="earned">{language === 'zh' ? '总收益最多' : 'Most earned'}</option>
+                <option value="stakes">{language === 'zh' ? '购买次数最多' : 'Most purchases'}</option>
+                <option value="withdrawals">{language === 'zh' ? '提现次数最多' : 'Most withdrawals'}</option>
+              </select>
+            </label>
+            <button className="soft-action" disabled={busy} onClick={() => loadAdmin().catch((error) => setNotice({ kind: 'error', text: error.message }))}>
+              {language === 'zh' ? '刷新后台' : 'Refresh'}
+            </button>
+          </div>
           <div className="admin-grid">
-            <Panel title={t.users}>
-              <div className="list">
-                {adminUsers.map((user) => (
-                  <div className="row" key={user.id}>
-                    <span>{short(user.wallet)}</span>
-                    <small>{language === 'zh' ? '本金' : 'Staked'} {user.totals.stakedSol} SOL · {language === 'zh' ? '总收益' : 'Earned'} {user.withdrawals.earnedSol} SOL</small>
-                    <small>{language === 'zh' ? '可提现' : 'Available'} {user.withdrawals.withdrawableSol} SOL · {language === 'zh' ? '已占用' : 'Locked'} {user.withdrawals.lockedSol} SOL</small>
-                    <small>{language === 'zh' ? '推荐收益' : 'Referral yield'} {user.community.referralTotalYieldSol} SOL · {user._count.stakes} stakes / {user._count.withdrawals} withdrawals / {user._count.referrals} refs</small>
+            <Panel title={`${t.users} (${filteredAdminUsers.length}/${adminUsers.length})`}>
+              <div className="admin-user-table">
+                <div className="admin-user-head">
+                  <span>{language === 'zh' ? '用户' : 'User'}</span>
+                  <span>{language === 'zh' ? '收益/提现' : 'Yield / Withdrawal'}</span>
+                  <span>{language === 'zh' ? '记录' : 'Records'}</span>
+                  <span>{language === 'zh' ? '管理员备注' : 'Admin note'}</span>
+                </div>
+                {filteredAdminUsers.length === 0 ? (
+                  <p className="muted">{language === 'zh' ? '没有匹配的用户' : 'No matching users'}</p>
+                ) : filteredAdminUsers.map((user) => (
+                  <div className="admin-user-row" key={user.id}>
+                    <div className="wallet-cell">
+                      <strong title={user.wallet}>{short(user.wallet)}</strong>
+                      <small>{new Date(user.createdAt).toLocaleString()}</small>
+                      <button className="icon-mini" title={language === 'zh' ? '复制钱包' : 'Copy wallet'} onClick={() => copyText(user.wallet, language === 'zh' ? '用户钱包已复制' : 'Wallet copied')}>
+                        <Copy size={14} />
+                      </button>
+                    </div>
+                    <div className="stat-cell">
+                      <span>{language === 'zh' ? '本金' : 'Staked'} <strong>{user.totals.stakedSol}</strong> SOL</span>
+                      <span>{language === 'zh' ? '总收益' : 'Earned'} <strong>{user.withdrawals.earnedSol}</strong> SOL</span>
+                      <span>{language === 'zh' ? '可提现' : 'Available'} <strong>{user.withdrawals.withdrawableSol}</strong> SOL</span>
+                      <span>{language === 'zh' ? '已占用' : 'Locked'} {user.withdrawals.lockedSol} SOL</span>
+                    </div>
+                    <div className="stat-cell">
+                      <span>{user._count.stakes} {language === 'zh' ? '购买' : 'purchases'}</span>
+                      <span>{user._count.withdrawals} {language === 'zh' ? '提现' : 'withdrawals'}</span>
+                      <span>{user._count.referrals} {language === 'zh' ? '推荐' : 'refs'}</span>
+                      <span>{language === 'zh' ? '推荐收益' : 'Referral'} {user.community.referralTotalYieldSol} SOL</span>
+                    </div>
+                    <div className="note-cell">
+                      <textarea
+                        value={adminUserNotes[user.id] ?? ''}
+                        onChange={(event) => setAdminUserNotes((notes) => ({ ...notes, [user.id]: event.target.value }))}
+                        placeholder={language === 'zh' ? '例如：大客户、已沟通、风险用户、打款备注...' : 'VIP, contacted, risk note, payout note...'}
+                        maxLength={1000}
+                      />
+                      <button disabled={busy || (adminUserNotes[user.id] ?? '') === (user.adminNote ?? '')} onClick={() => saveAdminUserNote(user)}>
+                        <Save size={15} />
+                        {language === 'zh' ? '保存备注' : 'Save note'}
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>

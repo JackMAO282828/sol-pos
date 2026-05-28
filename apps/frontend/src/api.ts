@@ -86,6 +86,7 @@ export type YieldSetting = {
 export type AdminUser = {
   id: string;
   wallet: string;
+  adminNote?: string | null;
   createdAt: string;
   _count: { stakes: number; withdrawals: number; referrals: number };
   totals: { stakedLamports: string; stakedSol: string };
@@ -162,5 +163,8 @@ export const api = {
   },
   updateWithdrawal(id: string, input: { status: Withdrawal['status']; note?: string }) {
     return request<{ withdrawal: Withdrawal }>(`/api/admin/withdrawals/${id}`, { method: 'PATCH', body: JSON.stringify(input) });
+  },
+  updateAdminUserNote(id: string, input: { adminNote: string }) {
+    return request<{ user: Pick<AdminUser, 'id' | 'wallet' | 'adminNote'> }>(`/api/admin/users/${id}/note`, { method: 'PATCH', body: JSON.stringify(input) });
   }
 };
