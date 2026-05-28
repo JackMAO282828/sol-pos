@@ -1,7 +1,13 @@
-const DEFAULT_BACKEND_API_ORIGIN = 'https://api.solstake.mom';
-
 export async function onRequest({ request, env }) {
-  const backendOrigin = (env.BACKEND_API_ORIGIN || DEFAULT_BACKEND_API_ORIGIN).replace(/\/+$/, '');
+  const configuredOrigin = env.BACKEND_API_ORIGIN || env.VITE_API_BASE_URL;
+  if (!configuredOrigin) {
+    return new Response(JSON.stringify({ error: 'Backend API origin is not configured' }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+
+  const backendOrigin = configuredOrigin.replace(/\/+$/, '');
   const incomingUrl = new URL(request.url);
   const targetUrl = `${backendOrigin}${incomingUrl.pathname}${incomingUrl.search}`;
   const headers = new Headers(request.headers);
